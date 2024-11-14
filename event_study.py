@@ -12,3 +12,7 @@ search_terms = {
     'symbol': 'TSLA',
     'interval': '5m'
 }
+
+data = data_catalog.search_datasets(search_terms=search_terms)
+
+data_workbench.aggregate_data(data, )
