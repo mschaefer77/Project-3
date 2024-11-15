@@ -235,6 +235,15 @@ class DataCatalog:
         print(f"Dataset '{dataset_name}' added to catalog.")
     
     def search_datasets(self, search_terms: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Searches datasets in the catalog based on search terms and returns the file path and description.
+
+        Parameters:
+            search_terms (Dict[str, Any]): The search criteria for filtering datasets.
+
+        Returns:
+            List[Dict[str, Any]]: A list of dictionaries containing file paths and descriptions of matching datasets.
+        """
         results = []
         for entry in self.catalog:
             match = True
@@ -243,9 +252,14 @@ class DataCatalog:
                     match = False
                     break
             if match:
-                results.append(entry)
+                # Append only the file path and description to results
+                results.append({
+                    'file_path': entry.get('dataset_name', None),
+                    'description': entry['metadata'].get('description', None)
+                })
         print(f"Found {len(results)} datasets matching search terms.")
         return results
+
     
     def get_dataset_metadata(self, dataset_name: str) -> Dict[str, Any]:
         for entry in self.catalog:
@@ -279,11 +293,27 @@ class DataWorkbench:
         else:
             self.data_lake.store_raw_data(dataset_name, data)
     
-    # filter data set based on some query 
-    def filter_data(self, data: pd.DataFrame, column: str, condition: str) -> pd.DataFrame:
-        filtered_data = data.query(condition)
-        print(f"Data filtered on '{column}' with condition '{condition}'.")
-        return filtered_data
+    def filter_data(self, data: pd.DataFrame, column: str = None, condition: str = None) -> pd.DataFrame:
+        """
+        Filters the DataFrame based on a condition and/or selects specific columns.
+
+        Parameters:
+            data (pd.DataFrame): The input DataFrame.
+            column (str, optional): The column to extract (e.g., 'close').
+            condition (str, optional): A query condition for filtering rows.
+
+        Returns:
+            pd.DataFrame: The filtered DataFrame with selected columns.
+        """
+        if condition:
+            data = data.query(condition)  # Apply condition if provided
+            print(f"Data filtered with condition: '{condition}'.")
+        
+        if column:
+            data = data[[column]]  # Extract the specific column if provided
+            print(f"Selected column: '{column}'.")
+        
+        return data
 
     def aggregate_data(
         self,
@@ -327,17 +357,14 @@ class DataWorkbench:
                         date_col = 'Date' if 'Date' in data.columns else 'Datetime'
                         data[date_col] = pd.to_datetime(data[date_col])
                         data.set_index(date_col, inplace=True)
-                        self.logger.info(f"Set '{date_col}' as DateTime index for resampling.")
                     else:
                         raise ValueError("DataFrame must have a DateTime index or a 'Date'/'Datetime' column for resampling.")
 
                 # Perform resampling
                 if resample_agg:
                     aggregated = data.resample(resample_freq).agg(resample_agg)
-                    self.logger.info(f"Data resampled to '{resample_freq}' intervals with aggregations: {resample_agg}")
                 elif aggregations:
                     aggregated = data.resample(resample_freq).agg(aggregations)
-                    self.logger.info(f"Data resampled to '{resample_freq}' intervals with aggregations: {aggregations}")
                 else:
                     raise ValueError("No aggregation functions provided for resampling.")
             else:
@@ -351,24 +378,20 @@ class DataWorkbench:
                     raise KeyError(f"Grouping columns not found in DataFrame: {missing_cols}")
                 
                 aggregated = aggregated.groupby(group_by).agg(aggregations).reset_index(drop=not as_index)
-                self.logger.info(f"Data grouped by {group_by} with aggregations {aggregations}.")
 
             # Drop NaN values if specified
             if dropna:
                 before_drop = len(aggregated)
                 aggregated.dropna(inplace=True)
                 after_drop = len(aggregated)
-                self.logger.info(f"Dropped {before_drop - after_drop} rows with NaN values after aggregation.")
 
             # Sort the DataFrame if specified and group_by is provided
             if sort and group_by:
                 aggregated.sort_values(by=group_by, inplace=True)
-                self.logger.info(f"Data sorted by {group_by}.")
 
             return aggregated
 
         except Exception as e:
-            self.logger.error(f"Error during aggregation: {e}", exc_info=True)
             return pd.DataFrame()  # Return empty DataFrame on error
 
     # adds information about the process dataset to the catalog

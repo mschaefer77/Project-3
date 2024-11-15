@@ -13,6 +13,7 @@ search_terms = {
     'interval': '5m'
 }
 
-data = data_catalog.search_datasets(search_terms=search_terms)
+data = data_lake.retrieve_raw_data(data_catalog.search_datasets(search_terms=search_terms)[0]['file_path'])
+new_data = data_workbench.register_processed_datasetdata_workbench.filter_data(data, column='close')
 
-data_workbench.aggregate_data(data, )
+print(new_data)
