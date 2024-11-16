@@ -11,5 +11,18 @@
             "interval": "5m",
             "description": "Historical intraday trading data for TSLA from yfinance"
         }
+    },
+    {
+        "dataset_name": "news_tesla",
+        "metadata": {
+            "data_type": "news",
+            "company": "TESLA",
+            "source": "NewsAPI",
+            "format": "csv",
+            "language": "en",
+            "from_date": "2024-11-01",
+            "to_date": "2024-11-13",
+            "description": "News articles for TESLA fetched from NewsAPI.org"
+        }
     }
 ]

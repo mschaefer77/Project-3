@@ -7,6 +7,8 @@ import pandas as pd
 import yfinance as yf
 import newsapi
 import requests
+from transformers import pipeline
+
 
 # Class for data lake
 class DataLake:
@@ -417,3 +419,118 @@ class BaseDataModel:
     
     def is_above_threshold(self, value: float, threshold: float) -> bool:
         return value > threshold
+
+from transformers import pipeline
+import pandas as pd
+
+class NewsDataSentiment(BaseDataModel):
+    def __init__(self, data: pd.DataFrame):
+        """
+        Initialize the NewsDataSentiment class with a dataset.
+
+        Parameters:
+            data (pd.DataFrame): A DataFrame containing news stories and their metadata.
+        """
+        if not isinstance(data, pd.DataFrame):
+            raise ValueError("Data must be a pandas DataFrame.")
+        
+        if 'headline' not in data.columns or 'published_at' not in data.columns:
+            raise KeyError("The DataFrame must have 'story' and 'time' columns.")
+        
+        self.data = data
+
+        # Initialize BERT sentiment analysis pipeline
+        self.sentiment_analyzer = pipeline("sentiment-analysis")
+
+    def analyze_sentiment(self) -> pd.DataFrame:
+        """
+        Analyze the sentiment of the news stories using BERT.
+
+        Returns:
+            pd.DataFrame: A DataFrame containing the original stories, sentiment scores, and release times.
+        """
+        # Apply BERT sentiment analysis to each story
+        self.data['sentiment_score'] = self.data['headline'].apply(self._get_sentiment_score)
+        return self.data[['headline', 'published_at', 'sentiment_score']]
+
+    def _get_sentiment_score(self, text: str) -> float:
+        """
+        Get the sentiment score for a given text using BERT.
+
+        Parameters:
+            text (str): The input text to analyze.
+
+        Returns:
+            float: The sentiment score (positive as >0, negative as <0).
+        """
+        if not isinstance(text, str):
+            return 0  # Return neutral score for invalid input
+
+        result = self.sentiment_analyzer(text)
+        label = result[0]['label']
+        score = result[0]['score']
+        return score if label == 'POSITIVE' else -score
+
+
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+from typing import Optional
+
+class StockSentimentAnalyzer(NewsDataSentiment):
+    def __init__(self, stock_data: pd.DataFrame, sentiment_thresholds: Optional[dict] = None):
+        """
+        Initialize the StockSentimentAnalyzer class with stock and sentiment data.
+
+        Parameters:
+            stock_data (pd.DataFrame): DataFrame containing stock prices.
+            sentiment_thresholds (dict, optional): Thresholds for buy/sell signals.
+        """
+        super().__init__(None)  # Skip initializing sentiment data here
+        self.stock_data = stock_data
+
+        # Default thresholds
+        self.sentiment_thresholds = sentiment_thresholds or {
+            'buy': 0.5,    # Sentiment score above this triggers a buy signal
+            'sell': -0.5   # Sentiment score below this triggers a sell signal
+        }
+
+    def generate_signals(self, merged_data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Add buy/sell signals to the data based on sentiment thresholds.
+
+        Parameters:
+            merged_data (pd.DataFrame): Merged DataFrame of stock and sentiment data.
+
+        Returns:
+            pd.DataFrame: DataFrame with buy/sell signals.
+        """
+        merged_data['signal'] = 0
+        merged_data.loc[merged_data['sentiment_score'] > self.sentiment_thresholds['buy'], 'signal'] = 1  # Buy
+        merged_data.loc[merged_data['sentiment_score'] < self.sentiment_thresholds['sell'], 'signal'] = -1  # Sell
+        return merged_data
+
+    def plot_signals(self, data: pd.DataFrame):
+        """
+        Plot stock prices with buy/sell signals.
+
+        Parameters:
+            data (pd.DataFrame): DataFrame containing stock prices and signals.
+        """
+        plt.figure(figsize=(12, 6))
+        plt.plot(data['time'], data['close'], label='Stock Price', alpha=0.7)
+
+        # Plot buy signals
+        buy_signals = data[data['signal'] == 1]
+        plt.scatter(buy_signals['time'], buy_signals['close'], label='Buy Signal', color='green', marker='^', alpha=1)
+
+        # Plot sell signals
+        sell_signals = data[data['signal'] == -1]
+        plt.scatter(sell_signals['time'], sell_signals['close'], label='Sell Signal', color='red', marker='v', alpha=1)
+
+        plt.title('Stock Prices with Buy and Sell Signals')
+        plt.xlabel('Time')
+        plt.ylabel('Price')
+        plt.legend()
+        plt.grid()
+        plt.show()
