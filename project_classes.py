@@ -8,7 +8,8 @@ import yfinance as yf
 import newsapi
 import requests
 from transformers import pipeline
-
+import matplotlib.pyplot as plt
+import numpy as np
 
 # Class for data lake
 class DataLake:
@@ -295,13 +296,13 @@ class DataWorkbench:
         else:
             self.data_lake.store_raw_data(dataset_name, data)
     
-    def filter_data(self, data: pd.DataFrame, column: str = None, condition: str = None) -> pd.DataFrame:
+    def filter_data(self, data: pd.DataFrame, columns: Union[str, List[str]] = None, condition: str = None) -> pd.DataFrame:
         """
         Filters the DataFrame based on a condition and/or selects specific columns.
 
         Parameters:
             data (pd.DataFrame): The input DataFrame.
-            column (str, optional): The column to extract (e.g., 'close').
+            columns (str or List[str], optional): The column(s) to extract (e.g., 'close' or ['close', 'volume']).
             condition (str, optional): A query condition for filtering rows.
 
         Returns:
@@ -310,11 +311,13 @@ class DataWorkbench:
         if condition:
             data = data.query(condition)  # Apply condition if provided
             print(f"Data filtered with condition: '{condition}'.")
-        
-        if column:
-            data = data[[column]]  # Extract the specific column if provided
-            print(f"Selected column: '{column}'.")
-        
+
+        if columns:
+            if isinstance(columns, str):  # If a single column is passed as a string
+                columns = [columns]  # Convert to a list for consistent handling
+            data = data[columns]  # Select the specified columns
+            print(f"Selected columns: {columns}.")
+
         return data
 
     def aggregate_data(
@@ -420,8 +423,6 @@ class BaseDataModel:
     def is_above_threshold(self, value: float, threshold: float) -> bool:
         return value > threshold
 
-from transformers import pipeline
-import pandas as pd
 
 class NewsDataSentiment(BaseDataModel):
     def __init__(self, data: pd.DataFrame):
@@ -472,29 +473,104 @@ class NewsDataSentiment(BaseDataModel):
         return score if label == 'POSITIVE' else -score
 
 
-import matplotlib.pyplot as plt
-import pandas as pd
-import numpy as np
-from typing import Optional
-
-class StockSentimentAnalyzer(NewsDataSentiment):
-    def __init__(self, stock_data: pd.DataFrame, sentiment_thresholds: Optional[dict] = None):
+class StockSentimentAnalyzer(BaseDataModel):
+    def __init__(self, stock_data: pd.DataFrame, news_data: pd.DataFrame, sentiment_thresholds: Optional[dict] = None):
         """
         Initialize the StockSentimentAnalyzer class with stock and sentiment data.
 
         Parameters:
             stock_data (pd.DataFrame): DataFrame containing stock prices.
+            news_data (pd.DataFrame): DataFrame containing news headlines and sentiment scores.
             sentiment_thresholds (dict, optional): Thresholds for buy/sell signals.
         """
         super().__init__(None)  # Skip initializing sentiment data here
         self.stock_data = stock_data
+        self.news_data = news_data
 
         # Default thresholds
         self.sentiment_thresholds = sentiment_thresholds or {
-            'buy': 0.5,    # Sentiment score above this triggers a buy signal
-            'sell': -0.5   # Sentiment score below this triggers a sell signal
-        }
+            'buy': 0.2,    # Sentiment score above this triggers a buy signal
+                'sell': -0.2   # Sentiment score below this triggers a sell signal
+            }
 
+    def merge_news_and_stock_data(self) -> pd.DataFrame:
+        """
+        Merge stock data with news data based on a common time index.
+
+        Returns:
+            pd.DataFrame: Merged DataFrame of stock and sentiment data.
+        """
+        print("Starting merge_news_and_stock_data...\n")
+
+        # Ensure news_data and stock_data are copies to avoid SettingWithCopyWarning
+        self.news_data = self.news_data.copy()
+        self.stock_data = self.stock_data.copy()
+        print("Created copies of news_data and stock_data.\n")
+
+        # Convert 'published_at' and 'datetime' columns to consistent datetime format
+        print("Converting 'published_at' and 'datetime' columns to datetime...")
+        self.news_data['time'] = pd.to_datetime(
+            self.news_data['published_at'], errors='coerce'
+        ).dt.tz_convert(None)
+        self.stock_data['time'] = pd.to_datetime(
+            self.stock_data['datetime'], errors='coerce'
+        ).dt.tz_convert(None)
+        print("Conversion complete.\n")
+
+        # Drop rows with NaT in 'time' columns
+        self.news_data.dropna(subset=['time'], inplace=True)
+        self.stock_data.dropna(subset=['time'], inplace=True)
+
+        # Debug: Print time ranges
+        print(f"News Data 'time' range: {self.news_data['time'].min()} to {self.news_data['time'].max()}")
+        print(f"Stock Data 'time' range: {self.stock_data['time'].min()} to {self.stock_data['time'].max()}\n")
+
+        # Sort both DataFrames by 'time'
+        self.stock_data.sort_values(by='time', inplace=True)
+        self.news_data.sort_values(by='time', inplace=True)
+
+        # Remove rounding of news_data times
+        # self.news_data['time'] = self.news_data['time'].dt.round('5min')
+
+        # Try different tolerance values
+        tolerances = ['5min', '15min', '30min', '1H', '2H']
+        for tol in tolerances:
+            print(f"\nAttempting merge with tolerance: {tol}")
+            tolerance = pd.Timedelta(tol)
+
+            # Merge the DataFrames using merge_asof
+            merged_data = pd.merge_asof(
+                self.stock_data,
+                self.news_data[['time', 'sentiment_score', 'headline']],  # Include necessary columns
+                on='time',
+                direction='nearest',  # Options: 'backward', 'forward', 'nearest'
+                tolerance=tolerance
+            )
+
+            # Count the number of rows with sentiment scores
+            num_sentiment_scores = merged_data['sentiment_score'].notna().sum()
+            print(f"Number of rows with sentiment scores after merge: {num_sentiment_scores} out of {len(merged_data)}")
+
+            if num_sentiment_scores > 0:
+                print("Successfully merged with non-zero sentiment scores.")
+                # Break the loop if we have successful matches
+                break
+        else:
+            print("No matches found with any tolerance. Consider adjusting your data or merge parameters.")
+
+        # If matches are found, proceed
+        if num_sentiment_scores > 0:
+            # Fill NaN sentiment scores with zero
+            merged_data['sentiment_score'] = merged_data['sentiment_score'].fillna(0)
+        else:
+            print("No sentiment scores were matched. Filling all with zero.")
+            merged_data['sentiment_score'] = 0
+
+        print("\nmerge_news_and_stock_data completed.\n")
+        return merged_data
+
+
+    
     def generate_signals(self, merged_data: pd.DataFrame) -> pd.DataFrame:
         """
         Add buy/sell signals to the data based on sentiment thresholds.
@@ -517,16 +593,47 @@ class StockSentimentAnalyzer(NewsDataSentiment):
         Parameters:
             data (pd.DataFrame): DataFrame containing stock prices and signals.
         """
+        # Convert 'datetime' to datetime64[ns]
+        data['datetime'] = pd.to_datetime(data['datetime'], errors='coerce')
+        data = data.dropna(subset=['datetime', 'close'])
+        data['datetime'] = data['datetime'].apply(lambda x: x.replace(tzinfo=None))
+        
+        # Convert to numpy arrays
+        datetimes = data['datetime'].to_numpy()
+        closes = data['close'].to_numpy()
+        # Check for arrays or lists in data
+        has_array_in_datetime = any(isinstance(x, (list, np.ndarray)) for x in datetimes)
+        has_array_in_close = any(isinstance(x, (list, np.ndarray)) for x in closes)
+        if has_array_in_datetime or has_array_in_close:
+            print("Flattening arrays in 'datetimes' and 'closes'")
+            datetimes = np.concatenate(datetimes).ravel()
+            closes = np.concatenate(closes).ravel()
+            print(f"After flattening, datetimes shape: {datetimes.shape}, closes shape: {closes.shape}")
+
+        # Plot stock prices
         plt.figure(figsize=(12, 6))
-        plt.plot(data['time'], data['close'], label='Stock Price', alpha=0.7)
+        plt.plot(datetimes, closes, label='Stock Price', alpha=0.7)
 
-        # Plot buy signals
-        buy_signals = data[data['signal'] == 1]
-        plt.scatter(buy_signals['time'], buy_signals['close'], label='Buy Signal', color='green', marker='^', alpha=1)
-
-        # Plot sell signals
-        sell_signals = data[data['signal'] == -1]
-        plt.scatter(sell_signals['time'], sell_signals['close'], label='Sell Signal', color='red', marker='v', alpha=1)
+        # Plot buy/sell signals if present
+        if 'signal' in data.columns:
+            buy_signals = data[data['signal'] == 1]
+            sell_signals = data[data['signal'] == -1]
+            plt.scatter(
+                buy_signals['datetime'].to_numpy(),
+                buy_signals['close'].to_numpy(),
+                label='Buy Signal',
+                color='green',
+                marker='^',
+                alpha=1
+            )
+            plt.scatter(
+                sell_signals['datetime'].to_numpy(),
+                sell_signals['close'].to_numpy(),
+                label='Sell Signal',
+                color='red',
+                marker='v',
+                alpha=1
+            )
 
         plt.title('Stock Prices with Buy and Sell Signals')
         plt.xlabel('Time')

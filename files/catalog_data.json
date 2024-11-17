@@ -6,7 +6,7 @@
             "symbol": "TSLA",
             "source": "yfinance",
             "format": "csv",
-            "start_date": "2024-10-01",
+            "start_date": "2024-11-01",
             "end_date": "2024-11-13",
             "interval": "5m",
             "description": "Historical intraday trading data for TSLA from yfinance"
