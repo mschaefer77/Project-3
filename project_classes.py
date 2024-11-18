@@ -509,13 +509,22 @@ class StockSentimentAnalyzer(BaseDataModel):
 
         # Convert 'published_at' and 'datetime' columns to consistent datetime format
         print("Converting 'published_at' and 'datetime' columns to datetime...")
+
+        # For news_data
         self.news_data['time'] = pd.to_datetime(
-            self.news_data['published_at'], errors='coerce'
-        ).dt.tz_convert(None)
+            self.news_data['published_at'], errors='coerce', utc=True
+        ).dt.tz_localize(None)
+
+        # For stock_data
         self.stock_data['time'] = pd.to_datetime(
-            self.stock_data['datetime'], errors='coerce'
-        ).dt.tz_convert(None)
+            self.stock_data['datetime'], errors='coerce', utc=True
+        ).dt.tz_localize(None)
+
         print("Conversion complete.\n")
+
+        # Verify the datatypes
+        print(f"stock_data['time'] dtype: {self.stock_data['time'].dtype}")
+        print(f"news_data['time'] dtype: {self.news_data['time'].dtype}\n")
 
         # Drop rows with NaT in 'time' columns
         self.news_data.dropna(subset=['time'], inplace=True)
@@ -529,9 +538,6 @@ class StockSentimentAnalyzer(BaseDataModel):
         self.stock_data.sort_values(by='time', inplace=True)
         self.news_data.sort_values(by='time', inplace=True)
 
-        # Remove rounding of news_data times
-        # self.news_data['time'] = self.news_data['time'].dt.round('5min')
-
         # Try different tolerance values
         tolerances = ['5min', '15min', '30min', '1H', '2H']
         for tol in tolerances:
@@ -543,7 +549,7 @@ class StockSentimentAnalyzer(BaseDataModel):
                 self.stock_data,
                 self.news_data[['time', 'sentiment_score', 'headline']],  # Include necessary columns
                 on='time',
-                direction='nearest',  # Options: 'backward', 'forward', 'nearest'
+                direction='nearest',
                 tolerance=tolerance
             )
 
@@ -568,6 +574,7 @@ class StockSentimentAnalyzer(BaseDataModel):
 
         print("\nmerge_news_and_stock_data completed.\n")
         return merged_data
+
 
 
     
